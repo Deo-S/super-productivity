@@ -503,6 +503,16 @@ export const shortSyntax = async (
     }
   }
 
+  // called "tag", since "+" is the project marker.
+  let tagModifiers: TagModifiers | undefined;
+  if (config.isEnableTag) {
+    tagModifiers = parseTagModifiers(tracked);
+    if (tagModifiers.ranges.length) {
+      pushRanges('tag', tagModifiers.ranges);
+      isTitleChanged = true;
+    }
+  }
+
   if (config.isEnableProject) {
     const projectResult = parseProjectTracked(
       task,
@@ -517,7 +527,7 @@ export const shortSyntax = async (
   }
 
   if (config.isEnableTag) {
-    const tagResult = parseTagChanges(task, tracked, allTags, mode);
+    const tagResult = parseTagChanges(task, tracked, allTags, mode, tagModifiers);
     taskChanges = {
       ...taskChanges,
       ...tagResult.taskChanges,
@@ -710,17 +720,91 @@ const parseProjectTracked = (
   return null;
 };
 
+// Matches #+tag and #-tag, preceded by a space or the start of the title.
+// Group 1: the space (or empty at the start), group 2: '+' or '-', group 3: tag name.
+const SHORT_SYNTAX_TAG_MODIFIER_REG_EX = /(^|\s)#([+-])([^\s#+@!]+)/g;
+// Clears all tags, typed as #-\\ (two backslashes). Same space-before rule.
+// Kept separate so it is easy to change or delete if maintainers decide against it.
+const SHORT_SYNTAX_TAG_CLEAR_ALL_REG_EX = /(^|\s)#-\\\\(?=\s|$)/g;
+
+interface TagModifiers {
+  addTitles: string[];
+  removeTitles: string[];
+  isClearAll: boolean;
+  ranges: TextRange[];
+}
+
+// Cuts every match of `regEx` out of the title. Matches are removed
+// last-to-first so earlier positions are not shifted by later removals.
+// Only the token itself is highlighted, but the space before it is removed
+// too, so "Task #+a done" becomes "Task done" rather than "Task  done".
+const cutTokens = (
+  tracked: TrackedTitle,
+  regEx: RegExp,
+  ranges: TextRange[],
+): RegExpMatchArray[] => {
+  const matches = [...tracked.text.matchAll(regEx)];
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const match = matches[i];
+    const matchStart = match.index as number;
+    const tokenStart = matchStart + match[1].length;
+    const tokenEnd = matchStart + match[0].length;
+    ranges.push(...tracked.rawRanges(tokenStart, tokenEnd));
+    tracked.remove(matchStart, tokenEnd);
+  }
+  return matches;
+};
+
+const parseTagModifiers = (tracked: TrackedTitle): TagModifiers => {
+  const result: TagModifiers = {
+    addTitles: [],
+    removeTitles: [],
+    isClearAll: false,
+    ranges: [],
+  };
+
+  // Clear-all first, otherwise the modifier regex would read "#-\\" as
+  // removing a tag called "\\".
+  const clearMatches = cutTokens(
+    tracked,
+    SHORT_SYNTAX_TAG_CLEAR_ALL_REG_EX,
+    result.ranges,
+  );
+  result.isClearAll = clearMatches.length > 0;
+
+  const modifierMatches = cutTokens(
+    tracked,
+    SHORT_SYNTAX_TAG_MODIFIER_REG_EX,
+    result.ranges,
+  );
+  modifierMatches.forEach((match) => {
+    if (match[2] === '+') {
+      result.addTitles.push(match[3]);
+    } else {
+      result.removeTitles.push(match[3]);
+    }
+  });
+
+  if (result.ranges.length) {
+    tracked.trim();
+  }
+  return result;
+};
+
 const parseTagChanges = (
   task: Partial<TaskCopy>,
   tracked: TrackedTitle,
   allTags?: Tag[],
   mode: 'combine' | 'replace' = 'combine',
+  modifiers?: TagModifiers,
 ): TagChanges => {
   const taskChanges: Partial<TaskCopy> = {};
 
   const newTagTitlesToCreate: string[] = [];
   const ranges: TextRange[] = [];
   let isTitleChanged = false;
+  // ids of existing tags typed as plain #tag
+  const matchingTagIds: string[] = [];
   // only exec if previous ones are also passed
   if (Array.isArray(task.tagIds) && Array.isArray(allTags)) {
     const initialTitle = tracked.text;
@@ -750,7 +834,6 @@ const parseTagChanges = (
           );
         });
 
-      const matchingTagIds: string[] = [];
       regexTagTitlesTrimmedAndFiltered.forEach((newTagTitle) => {
         const existingTag = allTags.find(
           (tag) => newTagTitle.toLowerCase() === tag.title.toLowerCase(),
@@ -797,6 +880,17 @@ const parseTagChanges = (
         isTitleChanged = true;
       }
     }
+
+    if (modifiers) {
+      applyTagModifiers(
+        task.tagIds,
+        allTags,
+        matchingTagIds,
+        modifiers,
+        taskChanges,
+        newTagTitlesToCreate,
+      );
+    }
   }
 
   return {
@@ -805,6 +899,66 @@ const parseTagChanges = (
     ranges,
     isTitleChanged,
   };
+};
+
+// Applies #+tag, #-tag and #-\\ on top of the plain #tag result.
+// #-\\ is applied first wherever it was typed: existing tags are cleared and
+// only tags typed in the same input are kept ("Task #tag #-\\" -> just #tag).
+// Unknown #+ tags go to the "create new tag?" dialog like plain #tag does;
+// unknown #- tags are ignored, so no dialog. tagIds is only set when the result
+// differs from the task's current tags, so [] always means "remove all".
+const applyTagModifiers = (
+  currentTagIds: string[],
+  allTags: Tag[],
+  plainTagIds: string[],
+  modifiers: TagModifiers,
+  taskChanges: Partial<TaskCopy>,
+  newTagTitlesToCreate: string[],
+): void => {
+  const { addTitles, removeTitles, isClearAll } = modifiers;
+  if (!isClearAll && !addTitles.length && !removeTitles.length) {
+    return;
+  }
+
+  const findTag = (title: string): Tag | undefined =>
+    allTags.find((tag) => tag.title.toLowerCase() === title.toLowerCase());
+
+  let tagIds: string[] = isClearAll
+    ? [...plainTagIds]
+    : [...(taskChanges.tagIds ?? currentTagIds)];
+
+  addTitles.forEach((title) => {
+    const existingTag = findTag(title);
+    if (!existingTag) {
+      if (!newTagTitlesToCreate.some((t) => t.toLowerCase() === title.toLowerCase())) {
+        newTagTitlesToCreate.push(title);
+      }
+    } else if (!tagIds.includes(existingTag.id)) {
+      tagIds.push(existingTag.id);
+    }
+  });
+
+  removeTitles.forEach((title) => {
+    const existingTag = findTag(title);
+    if (existingTag) {
+      tagIds = tagIds.filter((id) => id !== existingTag.id);
+    }
+    // also cancel a new tag typed in the same input ("#+new #-new")
+    for (let i = newTagTitlesToCreate.length - 1; i >= 0; i--) {
+      if (newTagTitlesToCreate[i].toLowerCase() === title.toLowerCase()) {
+        newTagTitlesToCreate.splice(i, 1);
+      }
+    }
+  });
+
+  const isUnchanged =
+    tagIds.length === currentTagIds.length &&
+    tagIds.every((id, i) => id === currentTagIds[i]);
+  if (isUnchanged) {
+    delete taskChanges.tagIds;
+  } else {
+    taskChanges.tagIds = tagIds;
+  }
 };
 
 // Result of a date-like stage: the task field changes plus the raw-input

@@ -791,24 +791,39 @@ const parseTagChanges = (
           return true;
         });
 
-      modifiers.addTitles.forEach((newTagTitle) => {
-        const existingTag = allTags.find(
+      const getExistingTag = (newTagTitle: string): Tag | undefined => {
+        return allTags.find(
           (tag) => newTagTitle.toLowerCase() === tag.title.toLowerCase(),
         );
+      };
+      let existingTag: Tag | undefined;
 
-        if (existingTag) {
+      modifiers.addTitles.forEach((newTagTitle) => {
+        if ((existingTag = getExistingTag(newTagTitle))) {
           addTagIDs.push(existingTag.id);
         } else {
           newTagTitlesToCreate.push(newTagTitle);
         }
+
+        // Check if the tag with 1 less letter was an existing tag.
+        // If so, we'll need to remove that, as it was probably
+        // typed during the last iteration. Otherwise, it'll be
+        // within addTagIDs
+        if (
+          (existingTag = getExistingTag(newTagTitle.substring(0, newTagTitle.length - 1)))
+        ) {
+          if (!addTagIDs.includes(existingTag?.id)) {
+            remTagIDs.push(existingTag.id);
+          }
+        }
       });
 
       modifiers.removeTitles.forEach((newTagTitle) => {
-        const existingTag = allTags.find(
-          (tag) => newTagTitle.toLowerCase() === tag.title.toLowerCase(),
-        );
-
-        if (existingTag) {
+        const i = newTagTitlesToCreate.indexOf(newTagTitle);
+        if (i != -1) {
+          newTagTitlesToCreate.splice(i, 1);
+        }
+        if ((existingTag = getExistingTag(newTagTitle))) {
           remTagIDs.push(existingTag.id);
         }
       });
@@ -818,18 +833,18 @@ const parseTagChanges = (
         if (
           !(
             (
-              task.tagIds.length === addTagIDs.length &&
-              task.tagIds.every((val, i) => val === addTagIDs[i]) &&
-              modifiers.isClearAll == false
+              task.tagIds?.length === addTagIDs.length &&
+              task.tagIds?.every((val, i) => val === addTagIDs[i])
             )
             // TODO: is this necessary?
           )
         ) {
-          taskChanges.tagIds = [...(task.tagIds as string[]), ...addTagIDs].filter(
-            (id) => {
-              return !remTagIDs.includes(id);
-            },
-          );
+          taskChanges.tagIds = [
+            ...(modifiers.isClearAll ? [] : (task.tagIds as string[])),
+            ...addTagIDs.filter((id) => !task.tagIds?.includes(id)),
+          ].filter((id) => {
+            return !remTagIDs.includes(id);
+          });
         } else if (modifiers.isClearAll) {
           taskChanges.tagIds = addTagIDs.filter((id) => {
             return !remTagIDs.includes(id);

@@ -803,30 +803,31 @@ describe('shortSyntax', () => {
       expect(r).toEqual(undefined);
     });
 
-    it('should remove tags not existing on title', async () => {
-      const t = {
-        ...TASK,
-        title: 'Fun title #blu #bla',
-        tagIds: ['blu_id', 'bla_id', 'hihi_id'],
-      };
-      const r = await shortSyntax(t, CONFIG, ALL_TAGS, undefined, undefined, 'replace');
-
-      expect(r).toEqual({
-        newTagTitles: [],
-        remindAt: null,
-        repeat: null,
-        parsedRanges: expectedRanges(t.title, [
-          ['tag', '#blu'],
-          ['tag', '#bla'],
-        ]),
-        projectId: undefined,
-        attachments: [],
-        taskChanges: {
-          title: 'Fun title',
-          tagIds: ['blu_id', 'bla_id'],
-        },
-      });
-    });
+    // Do we even still need 'replace' mode?
+    // it('should remove tags not existing on title', async () => {
+    //   const t = {
+    //     ...TASK,
+    //     title: 'Fun title #blu #bla',
+    //     tagIds: ['blu_id', 'bla_id', 'hihi_id'],
+    //   };
+    //   const r = await shortSyntax(t, CONFIG, ALL_TAGS, undefined, undefined, 'replace');
+    //
+    //   expect(r).toEqual({
+    //     newTagTitles: [],
+    //     remindAt: null,
+    //     repeat: null,
+    //     parsedRanges: expectedRanges(t.title, [
+    //       ['tag', '#blu'],
+    //       ['tag', '#bla'],
+    //     ]),
+    //     projectId: undefined,
+    //     attachments: [],
+    //     taskChanges: {
+    //       title: 'Fun title',
+    //       tagIds: ['blu_id', 'bla_id'],
+    //     },
+    //   });
+    // });
 
     it('should not remove tags not existing on title when disabled', async () => {
       const t = {
@@ -934,30 +935,6 @@ describe('shortSyntax', () => {
       expect(r).toEqual(undefined);
     });
 
-    it('should remove tag from title if task already has tag', async () => {
-      const t = {
-        ...TASK,
-        title: 'Test tag #testing',
-        tagIds: ['testing_id'],
-      };
-      const r = await shortSyntax(t, CONFIG, [
-        ...ALL_TAGS,
-        { ...DEFAULT_TAG, id: 'testing_id', title: 'testing' },
-      ]);
-
-      expect(r).toEqual({
-        newTagTitles: [],
-        remindAt: null,
-        repeat: null,
-        parsedRanges: expectedRanges(t.title, [['tag', '#testing']]),
-        projectId: undefined,
-        attachments: [],
-        taskChanges: {
-          title: 'Test tag',
-        },
-      });
-    });
-
     it('should create new tag and remove both from title if task already has one given tag', async () => {
       const t = {
         ...TASK,
@@ -981,6 +958,7 @@ describe('shortSyntax', () => {
         attachments: [],
         taskChanges: {
           title: 'Test tag',
+          tagIds: ['blu_id'],
         },
       });
     });

@@ -524,13 +524,6 @@ export const shortSyntax = async (
   }
 
   if (config.isEnableTag) {
-    // let tagModifiers: TagModifiers | undefined;
-    // tagModifiers = parseTagModifiers(tracked);
-    // if (tagModifiers.ranges.length) {
-    //   pushRanges('tag', tagModifiers.ranges);
-    //   isTitleChanged = true;
-    // }
-
     const tagResult = parseTagChanges(task, tracked, allTags, mode);
     taskChanges = {
       ...taskChanges,
@@ -728,7 +721,6 @@ interface TagModifiers {
   addTitles: string[];
   removeTitles: string[];
   isClearAll: boolean;
-  ranges: TextRange[];
 }
 
 const parseTagChanges = (
@@ -742,7 +734,6 @@ const parseTagChanges = (
     addTitles: [],
     removeTitles: [],
     isClearAll: false,
-    ranges: [],
   };
 
   const newTagTitlesToCreate: string[] = [];

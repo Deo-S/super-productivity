@@ -784,9 +784,8 @@ const parseTagChanges = (
           } else if (newTagTitle === (CH_TAG_REMALL as string)) {
             modifiers.isClearAll = true;
           } else {
-            // Just a basic tag. Clear all, then add.
+            // Just a basic tag. Treat as #+.
             modifiers.addTitles.push(newTagTitle);
-            modifiers.isClearAll = true;
           }
           return true;
         });
@@ -828,68 +827,54 @@ const parseTagChanges = (
         }
       });
 
-      if (mode === 'replace') {
-        // Check if arrays aren't the same
-        if (
-          !(
-            (
-              task.tagIds?.length === addTagIDs.length &&
-              task.tagIds?.every((val, i) => val === addTagIDs[i])
-            )
-            // TODO: is this necessary?
-          )
-        ) {
-          taskChanges.tagIds = [
-            ...(modifiers.isClearAll ? [] : (task.tagIds as string[])),
-            ...addTagIDs.filter((id) => !task.tagIds?.includes(id)),
-          ].filter((id) => {
-            return !remTagIDs.includes(id);
-          });
-        } else if (modifiers.isClearAll) {
-          taskChanges.tagIds = addTagIDs.filter((id) => {
-            return !remTagIDs.includes(id);
-          });
-          // TODO: sort out interaction for #\
-        }
-      } else {
-        if (addTagIDs.length) {
-          if (modifiers.isClearAll) {
-            taskChanges.tagIds = addTagIDs.filter((id) => {
-              return !remTagIDs.includes(id);
-            });
-          } else {
-            taskChanges.tagIds = [...(task.tagIds as string[]), ...addTagIDs].filter(
-              (id) => {
-                return !remTagIDs.includes(id);
-              },
-            );
-          }
-        }
-      }
+      const existingIDs: string[] = modifiers.isClearAll ? [] : (task.tagIds as string[]);
+      const tagIds: string[] = [
+        ...existingIDs,
+        ...addTagIDs.filter((id) => !existingIDs?.includes(id)),
+      ].filter((id) => {
+        return !remTagIDs.includes(id);
+      });
 
-      if (modifiers.addTitles.length || modifiers.removeTitles.length) {
-        [...modifiers.addTitles, ...modifiers.removeTitles].forEach((tagTitle) => {
-          const candidates = [
-            `${CH_TAG}${tagTitle}`,
-            `${CH_TAG}${CH_TAG_ADD}${tagTitle}`,
-            `${CH_TAG}${CH_TAG_REM}${tagTitle}`,
-          ];
-
-          const matchedText = candidates.find((candidate) =>
-            tracked.text.includes(candidate),
-          );
-          if (matchedText) {
-            const start = tracked.text.indexOf(matchedText);
-            if (start !== -1) {
-              ranges.push(...tracked.rawRanges(start, start + matchedText.length));
-              tracked.remove(start, start + matchedText.length);
-            }
-          }
-        });
-        tracked.trim();
-        isTitleChanged = true;
+      // Spec expects no tagIds field to be present if it would be empty
+      if (tagIds.length > 0) {
+        taskChanges.tagIds = tagIds;
       }
     }
+  }
+
+  if (modifiers.addTitles.length || modifiers.removeTitles.length) {
+    [...modifiers.addTitles, ...modifiers.removeTitles].forEach((tagTitle) => {
+      const candidates = [
+        `${CH_TAG}${tagTitle}`,
+        `${CH_TAG}${CH_TAG_ADD}${tagTitle}`,
+        `${CH_TAG}${CH_TAG_REM}${tagTitle}`,
+      ];
+
+      const matchedText = candidates.find((candidate) =>
+        tracked.text.includes(candidate),
+      );
+      if (matchedText) {
+        const start = tracked.text.indexOf(matchedText);
+        if (start !== -1) {
+          ranges.push(...tracked.rawRanges(start, start + matchedText.length));
+          tracked.remove(start, start + matchedText.length);
+        }
+      }
+    });
+    tracked.trim();
+    isTitleChanged = true;
+  }
+
+  // Make sure to get #\, as it won't necessarily have any addTitles or removeTitles
+  const removeAllTag: string = `${CH_TAG}${CH_TAG_REMALL}`;
+  if (tracked.text.includes(removeAllTag)) {
+    const start = tracked.text.indexOf(removeAllTag);
+    if (start !== -1) {
+      ranges.push(...tracked.rawRanges(start, start + removeAllTag.length));
+      tracked.remove(start, start + removeAllTag.length);
+    }
+    tracked.trim();
+    isTitleChanged = true;
   }
 
   return {

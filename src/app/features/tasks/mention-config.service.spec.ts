@@ -71,7 +71,6 @@ describe('MentionConfigService', () => {
           [],
           [],
           NOW,
-          'combine',
           isParseRepeat,
         );
         const changes = r?.taskChanges;

@@ -75,9 +75,8 @@ const CH_DUE = '@';
 const CH_DEADLINE = '!';
 const ALL_SPECIAL = `(\\${CH_PRO}|\\${CH_TAG}|\\${CH_DUE}|\\${CH_DEADLINE})`;
 
-const CH_TAG_ADD = '+';
 const CH_TAG_REM = '-';
-const CH_TAG_REMALL = '\\'; // TODO: maybe
+const CH_TAG_REMALL = '\\';
 
 // The following project name extraction pattern attempts to improve on the
 // previous version by not immediately terminating upon encountering a short
@@ -426,7 +425,6 @@ export const shortSyntax = async (
   allTags?: Tag[],
   allProjects?: Project[],
   now = new Date(),
-  mode: 'combine' | 'replace' = 'combine',
   // Recurrence syntax ("@every friday") is only meaningful where a repeat cfg
   // can be created for the result — the add-task bar. Title edits of existing
   // tasks keep parsing it as a plain date.
@@ -524,7 +522,7 @@ export const shortSyntax = async (
   }
 
   if (config.isEnableTag) {
-    const tagResult = parseTagChanges(task, tracked, allTags, mode);
+    const tagResult = parseTagChanges(task, tracked, allTags);
     taskChanges = {
       ...taskChanges,
       ...tagResult.taskChanges,
@@ -727,7 +725,6 @@ const parseTagChanges = (
   task: Partial<TaskCopy>,
   tracked: TrackedTitle,
   allTags?: Tag[],
-  mode: 'combine' | 'replace' = 'combine',
 ): TagChanges => {
   const taskChanges: Partial<TaskCopy> = {};
   const modifiers: TagModifiers = {
@@ -764,18 +761,13 @@ const parseTagChanges = (
             return false;
           }
 
-          if (newTagTitle.startsWith(CH_TAG_ADD)) {
-            if (newTagTitle[1]) {
-              modifiers.addTitles.push(newTagTitle.substring(1));
-            }
+          if (newTagTitle === (CH_TAG_REMALL as string)) {
+            modifiers.isClearAll = true;
           } else if (newTagTitle.startsWith(CH_TAG_REM)) {
             if (newTagTitle[1]) {
               modifiers.removeTitles.push(newTagTitle.substring(1));
             }
-          } else if (newTagTitle === (CH_TAG_REMALL as string)) {
-            modifiers.isClearAll = true;
           } else {
-            // Just a basic tag. Treat as #+.
             modifiers.addTitles.push(newTagTitle);
           }
           return true;
@@ -826,8 +818,11 @@ const parseTagChanges = (
         return !remTagIDs.includes(id);
       });
 
-      // Spec expects no tagIds field to be present if it would be empty
-      if (tagIds.length > 0) {
+      // Spec expects no tagIds field to be present if no tagID changes on task.
+      if (
+        tagIds.length !== (task.tagIds as string[]).length ||
+        !tagIds.every((id, i) => id === (task.tagIds as string[])[i])
+      ) {
         taskChanges.tagIds = tagIds;
       }
     }
@@ -835,11 +830,7 @@ const parseTagChanges = (
 
   if (modifiers.addTitles.length || modifiers.removeTitles.length) {
     [...modifiers.addTitles, ...modifiers.removeTitles].forEach((tagTitle) => {
-      const candidates = [
-        `${CH_TAG}${tagTitle}`,
-        `${CH_TAG}${CH_TAG_ADD}${tagTitle}`,
-        `${CH_TAG}${CH_TAG_REM}${tagTitle}`,
-      ];
+      const candidates = [`${CH_TAG}${tagTitle}`, `${CH_TAG}${CH_TAG_REM}${tagTitle}`];
 
       const matchedText = candidates.find((candidate) =>
         tracked.text.includes(candidate),
